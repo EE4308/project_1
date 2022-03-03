@@ -36,7 +36,9 @@ add_executable(
     src/grid.cpp
     src/common.cpp
     src/los.cpp
-    src/trajectory.cpp)
+    src/trajectory.cpp
+    src/dijkstra.cpp)
+    
 target_link_libraries(turtle_main ${catkin_LIBRARIES})
 
 

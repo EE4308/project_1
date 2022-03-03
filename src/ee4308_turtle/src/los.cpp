@@ -55,7 +55,7 @@ Index LOS::next()
 }
 std::vector<Index> LOS::get(Index src, Index tgt)
 {
-    std::vector<Index> line = {}; // empty vector of index
+    std::vector<Index> line = {src}; // empty vector of index
 
     reset(src, tgt);
     
@@ -114,7 +114,7 @@ Index LOS::next()
 }
 std::vector<Index> LOS::get(Index src, Index tgt)
 {
-    std::vector<Index> line = {}; // empty vector of index
+    std::vector<Index> line = {src}; // empty vector of index
 
     reset(src, tgt);
     

@@ -14,16 +14,6 @@ double sign(double value)
     else
         return 0;
 }
-double sat(double x, double x_star)
-{
-    if (x > x_star)
-        return x_star;
-    else if (x < -x_star)
-        return -x_star;
-    else
-        return x;
-
-}
 double dist_oct(Index src, Index tgt)
 {
     return dist_oct(src.i, src.j, tgt.i, tgt.j);
@@ -85,3 +75,4 @@ double limit_angle(double angle)
     double result = fmod(angle + M_PI, M_PI*2); // fmod rounds remainders to zero. we want remainders to be +ve like mod() in matlab and % in python
     return result >= 0 ? result - M_PI : result + M_PI;
 }
+

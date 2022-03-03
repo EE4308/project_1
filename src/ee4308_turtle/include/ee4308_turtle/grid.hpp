@@ -10,7 +10,7 @@
 #define GRID_HPP
 class Grid
 {
-    private:
+    public:
         std::vector<int> grid_log_odds; // signed char is int but 4 times smaller in memory
         int log_odds_thresh, log_odds_cap;
         std::vector<int> grid_inflation;
@@ -23,7 +23,6 @@ class Grid
         void generate_mask_inflation(double inflation_radius);
         void change_inflation(bool inflate, Index idx);
         void change_log_odds(bool occupy, Index idx);
-    public:
         Index size;
         LOS los;
 

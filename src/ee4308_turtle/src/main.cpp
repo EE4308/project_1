@@ -1,6 +1,7 @@
 #include <ros/ros.h>
 #include "grid.hpp"
 #include "planner.hpp"
+#include "dijkstra.hpp"
 #include "trajectory.hpp"
 #include <stdio.h>
 #include <stdlib.h>
@@ -148,6 +149,7 @@ int main(int argc, char **argv)
 
     // Setup the planner class
     Planner planner(grid);
+    Dijkstra dijkstra(grid, grid);
 
     // setup loop rates
     ros::Rate rate(main_iter_rate);
@@ -159,6 +161,8 @@ int main(int argc, char **argv)
     Position pos_goal = pos_rbt; // to trigger the reach goal
     int t = 0;                   // target num
     Position pos_target;
+    bool intermediate_goal_enable = false;
+
 
     // wait for other nodes to load
     ROS_INFO(" TMAIN : Waiting for topics");
@@ -171,7 +175,7 @@ int main(int argc, char **argv)
     ROS_INFO(" TMAIN : ===== BEGIN =====");
 
     while (ros::ok())
-    {
+{
         // update all topics
         ros::spinOnce();
 
@@ -193,6 +197,11 @@ int main(int argc, char **argv)
             }
             // there are goals remaining
             pos_goal = goals[g];
+
+            // intermediate goal is reached, clear flag
+            if (intermediate_goal_enable) {
+                intermediate_goal_enable = false;
+            }
         }
         else if (!is_safe_trajectory(trajectory, grid))
         { // request a new path if path intersects inaccessible areas, or if there is no path
@@ -205,7 +214,7 @@ int main(int argc, char **argv)
             if (--t < 0)
                 t = 0; // in case the close enough for target triggers. indices cannot be less than 0.
 
-            pos_target = trajectory[--t];
+            pos_target = trajectory[t];
             ROS_INFO(" TMAIN : Get next target (%f,%f)", pos_target.x, pos_target.y);
 
             // publish to target topic
@@ -213,15 +222,21 @@ int main(int argc, char **argv)
             msg_target.point.y = pos_target.y;
             pub_target.publish(msg_target);
         }
-
         if (replan)
         {
             if (grid.get_cell(pos_rbt) && grid.get_cell(pos_goal))
             {
                 ROS_INFO(" TMAIN : Request Path from [%.2f, %.2f] to Goal %d at [%.2f,%.2f]",
                          pos_rbt.x, pos_rbt.y, g, pos_goal.x, pos_goal.y);
+
+                //check if goal inflated
+                Index idx = grid.pos2idx(pos_goal);
+                int k = grid.get_key(idx);
+                //check if robot is inflated
+                Index idx_rbt = grid.pos2idx(pos_rbt);
+                int r = grid.get_key(idx_rbt);
                 // if the robot and goal are both on accessible cells of the grid
-                path = planner.get(pos_rbt, pos_goal); // original path
+                path = planner.theta(pos_rbt, pos_goal); // original path
                 if (path.empty())
                 { // path cannot be found
                     ROS_WARN(" TMAIN : No path found between robot and goal");
@@ -280,7 +295,7 @@ int main(int argc, char **argv)
                         t -= 15; // this is the average_speed * 15 * target_dt away
                     pos_target = trajectory[t];
 
-                    // publish to target topic
+                    // publish to target to}pic
                     msg_target.point.x = pos_target.x;
                     msg_target.point.y = pos_target.y;
                     pub_target.publish(msg_target);
@@ -290,12 +305,37 @@ int main(int argc, char **argv)
             }
             else
             { // robot lies on inaccessible cell, or if goal lies on inaccessible cell
-                if (!grid.get_cell(pos_rbt))
+                if (!grid.get_cell(pos_rbt)){
                     ROS_WARN(" TMAIN : Robot lies on inaccessible area. No path can be found");
-                if (!grid.get_cell(pos_goal))
+                    ROS_INFO("ORIGINAL RBT_POSITION: %f %f",pos_rbt.x,pos_rbt.y);
+                    Index idx = grid.pos2idx(pos_rbt);
+                    ROS_INFO("ORIGINAL RBT_IDX: %d %d",idx.i,idx.j);
+                    idx = dijkstra.get(idx);
+                    ROS_INFO("UPDATED RBT_IDX: %d %d",idx.i,idx.j);
+                    pos_rbt = grid.idx2pos(idx);
+                    // set flag intermediate goal, until goal is reached
+                    if (intermediate_goal_enable == false) {
+                        goals.insert(goals.begin(),pos_rbt);
+                        intermediate_goal_enable = true;
+                    }
+                    ROS_INFO("ROBOT INFLATED, REPLAN TO: %f %f.", pos_goal.x,pos_goal.y);
+                }
+                if (!grid.get_cell(pos_goal)){
                     ROS_WARN(" TMAIN : Goal lies on inaccessible area. No path can be found");
+                    ROS_WARN("[WD] ORIGINAL GOAL_POSITION: %f %f",pos_goal.x,pos_goal.y);
+
+                    Index idx = grid.pos2idx(pos_goal);
+                    ROS_WARN("[WD] ORIGINAL GOAL_IDX: %d %d",idx.i,idx.j);
+                    idx = dijkstra.get(idx);
+                    ROS_WARN("[WD] UPDATED GOAL_IDX: %d %d",idx.i,idx.j);
+                    goals[g] = grid.idx2pos(idx);
+                    ROS_WARN("[WD] G-Value %d", g);
+                    ROS_WARN("[WD] GOAL INFLATED, REPLAN TO: %f %f.", pos_goal.x,pos_goal.y);
+                }
             }
         }
+        ROS_WARN("[G-VAL] %d", g);
+        ROS_WARN("[WD - GOALS]: %ld", goals.size());
 
         // sleep for rest of iteration
         rate.sleep();

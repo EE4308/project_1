@@ -19,8 +19,8 @@ void cbImu(const sensor_msgs::Imu::ConstPtr &msg)
 double wheel_l = 10, wheel_r = 10; // init as 10 bcos both are unlikely to be exactly 10 (both can start at non-zero if u reset the sim). whole doubles can also be exactly compared
 void cbWheels(const sensor_msgs::JointState::ConstPtr &msg)
 {
-    wheel_l = msg->position[1]; // double check the topic. it is labelled there
-    wheel_r = msg->position[0]; // double check the topic. it is labelled there
+    wheel_l = msg->position[0]; // double check the topic. it is labelled there
+    wheel_r = msg->position[1]; // double check the topic. it is labelled there
 }
 
 nav_msgs::Odometry msg_odom;
@@ -47,7 +47,7 @@ int main(int argc, char **argv)
 
     // Prepare published message
     geometry_msgs::PoseStamped pose_rbt;
-    pose_rbt.header.frame_id = "map"; // for rviz
+    pose_rbt.header.frame_id = "map"; //for rviz
 
     if (use_internal_odom)
     { // subscribes to odom topic --> is the exact simulated position in gazebo; when used in real life, is derived from wheel encoders (no imu).
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
         while (ros::ok() && nh.param("run", true) && msg_odom.header.seq == 0) // dependent on odom
         {
             rate.sleep();
-            ros::spinOnce(); // update the topics
+            ros::spinOnce(); //update the topics
         }
 
         ROS_INFO("TMOTION: ===== BEGIN =====");
@@ -86,9 +86,11 @@ int main(int argc, char **argv)
                 double siny_cosp = 2 * (q.w * q.z + q.x * q.y);
                 double cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
 
-                ROS_INFO("TMOTION: Pos(%7.3f, %7.3f)  Ang(%6.3f)  FVel(%6.3f)  AVel(%6.3f)",
+                ROS_INFO("TMOTION: Pos(%7.3f, %7.3f)  Ang(%6.3f)  FVel(%6.3f)  AVel(%6.3f) ",
                          pose_rbt.pose.position.x, pose_rbt.pose.position.y, atan2(siny_cosp, cosy_cosp),
                          msg_odom.twist.twist.linear.x, msg_odom.twist.twist.angular.z);
+         
+                         
             }
 
             rate.sleep();
@@ -122,14 +124,10 @@ int main(int argc, char **argv)
         double motion_iter_rate;
         if (!nh.param("motion_iter_rate", motion_iter_rate, 50.0))
             ROS_WARN(" TMOVE : Param motion_iter_rate not found, set to 50");
-        bool auto_tune;
-        if (!nh.param("auto_tune", auto_tune, false))
-            ROS_WARN(" auto_tune : Param auto_tune not found, set to false");
 
         // Subscribers
         ros::Subscriber sub_wheels = nh.subscribe("joint_states", 1, &cbWheels);
         ros::Subscriber sub_imu = nh.subscribe("imu", 1, &cbImu);
-        ros::Subscriber sub_odom = nh.subscribe("odom", 1, &cbOdom); // USED FOR COMPARISON WITH CALCULATED
 
         // initialise rate
         ros::Rate rate(motion_iter_rate); // higher rate for better estimation
@@ -144,41 +142,38 @@ int main(int argc, char **argv)
         while (ros::ok() && nh.param("run", true) && (wheel_l == 10 || wheel_r == 10 || imu_ang_vel == -10)) // dependent on imu and wheels
         {
             rate.sleep();
-            ros::spinOnce(); // update the topics
+            ros::spinOnce(); //update the topics
         }
 
         ROS_INFO("TMOTION: ===== BEGIN =====");
 
-        // declare / initialise other variables
+  
+        ////////////////// DECLARE VARIABLES HERE //////////////////
         double ang_rbt = 0; // robot always start at zero.
         double lin_vel = 0, ang_vel = 0;
         double prev_time = ros::Time::now().toSec();
         double dt = 0;
-        ////////////////// DECLARE VARIABLES HERE //////////////////
-        // odom model
-        double prev_wheel_l = wheel_l;
-        double prev_wheel_r = wheel_r;
-        double thetha_wheel_l = 0;
-        double thetha_wheel_r = 0;
-        double odom_lin_vel = 0;
-        double odom_ang_vel = 0;
-
-        // imu model
-        double imu_lin_vel = 0;
-
-        // calculated lin and ang vel
-        double vt = 0;
-        double wt = 0;
-
-        // displacement
-        double prev_ang_rbt = ang_rbt;
-        double turn_radius = 0;
-
-        // tuning
-        double d_x = 0;
-        double d_y = 0;
-        double d_a = 0;
-        double tick = 0;
+        double change_vel_left = 0;
+        double change_vel_right = 0;
+        double lin_vel_odom =0 ;
+        double ang_vel_odom = 0;
+        double lin_vel_imu = 0 ;
+        
+    
+        
+        double change_vel = 0;
+        double change_ang_vel = 0;
+        double rt = 0; 
+        double wheel_l_old = wheel_l;
+        double wheel_r_old = wheel_r;
+        double ang_rbt_old = 0;
+        double true_ang = 0;
+        double error_x = 0;
+        double error_y = 0;
+        double average_error_x = 0;
+        double average_error_y = 0;
+        double number_iteration = 1;
+        double average_speed = 0;
 
         // loop
         while (ros::ok() && nh.param("run", true))
@@ -192,122 +187,49 @@ int main(int argc, char **argv)
             prev_time += dt;
 
             ////////////////// MOTION FILTER HERE //////////////////
-
-            thetha_wheel_l = wheel_l - prev_wheel_l;
-            thetha_wheel_r = wheel_r - prev_wheel_r;
-            prev_wheel_l = wheel_l;
-            prev_wheel_r = wheel_r;
-
-            // odom model
-            odom_lin_vel = wheel_radius * (thetha_wheel_l + thetha_wheel_r) / (2 * dt);
-            odom_ang_vel = wheel_radius * (thetha_wheel_r - thetha_wheel_l) / (axle_track * dt);
-
-            // imu model
-            imu_lin_vel = vt + imu_lin_acc * dt;
-
-            // weighted average calc
-            vt = weight_odom_v * odom_lin_vel + weight_imu_v * imu_lin_vel;
-            wt = weight_odom_w * odom_ang_vel + weight_imu_w * imu_ang_vel;
-            ang_rbt = prev_ang_rbt + wt* dt;
-            turn_radius = vt / wt;
-
-            pos_rbt.x = abs(wt) > straight_thresh ? pos_rbt.x + turn_radius * (-sin(prev_ang_rbt) + sin(ang_rbt))
-                                                  : pos_rbt.x + vt * dt * cos(prev_ang_rbt);
-
-            pos_rbt.y = abs(wt) > straight_thresh ? pos_rbt.y + turn_radius * (cos(prev_ang_rbt) - cos(ang_rbt))
-                                                  : pos_rbt.y + vt * dt * sin(prev_ang_rbt);
-
-            prev_ang_rbt = ang_rbt;
-
-            ROS_INFO("odom_vt(%3.3f)  imu_vt(%4.3f)", odom_lin_vel, imu_lin_vel);
-            ROS_INFO("odom_wt(%1.2f)  imu_wt(%2.2f)", odom_ang_vel, imu_ang_vel);
-
-            auto &q = msg_odom.pose.pose.orientation;
-            double siny_cosp = 2 * (q.w * q.z + q.x * q.y);
-            double cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-            double true_ang = atan2(siny_cosp, cosy_cosp);
-            d_x += abs(pos_rbt.x - msg_odom.pose.pose.position.x);
-            d_y += abs(pos_rbt.y - msg_odom.pose.pose.position.y);
-            d_a += abs(ang_rbt - true_ang);
-            tick += 1;
-
-            ROS_INFO("weight_odom_V(%2.2f)  weight_odom_W(%3.2f)  time(%4.1f)",
-                     weight_odom_v, weight_odom_w, prev_time);
-            ROS_INFO("D_X_Live(%7.3f)  D_Y_Live(%6.3f)  D_A_Live(%5.3f)",
-                     abs(pos_rbt.x - msg_odom.pose.pose.position.x), abs(pos_rbt.y - msg_odom.pose.pose.position.y), abs(ang_rbt - true_ang));
-            ROS_INFO("D_X_Avg(%7.3f)   D_Y_Avg(%6.3f)   D_A_Avg(%5.3f)",
-                     d_x / tick, d_y / tick, d_a / tick);
-            ROS_INFO("comparison: True_X(%7.3f)  True_Y(%6.3f)  True_A(%5.3f)",
-                     msg_odom.pose.pose.position.x, msg_odom.pose.pose.position.y, true_ang);
-            ROS_INFO("comparison: Calc_X(%7.3f)  Calc_Y(%6.3f)  Calc_A(%5.3f)", pos_rbt.x, pos_rbt.y, ang_rbt);
-            if (auto_tune)
-            {
-                // FIND THE DIRECTION OF MINIMA & update weight odom w
-                // Calculate Linear Velocity from Pos
-                double lin_vel_real = msg_odom.twist.twist.linear.x;
-                double diff_vt = abs(vt - msg_odom.twist.twist.linear.x);
-
-                ROS_INFO("REAL_LIN_VEL(%2.2f) CALC_LIN_VEL(%3.2f) DIFF_VT(%4.2f)", lin_vel_real, vt, diff_vt);
-
-                bool weight_imu_v_ok = (weight_imu_v > 0) && (weight_imu_v < 1);
-                bool weight_odom_v_ok = (weight_odom_v > 0) && (weight_odom_v < 1);
-                bool weight_imu_w_ok = (weight_imu_w > 0) && (weight_imu_w < 1);
-                bool weight_odom_w_ok = (weight_odom_w > 0) && (weight_odom_w < 1);
-                if (d_a > 0.1 || diff_vt > 0.1)
-                { // Use 0.05 to avoid tuning to noise
-                    // Calculate diff btw true angle against odom_wt and imu_wt
-                    double odom_true_ang_diff = abs(true_ang - odom_ang_vel);
-                    double imu_true_ang_diff = abs(true_ang - imu_ang_vel);
-
-                    double odom_true_lin_diff = abs(lin_vel_real - odom_lin_vel);
-                    double imu_true_lin_diff = abs(lin_vel_real - imu_lin_vel);
-
-                    if (weight_odom_w_ok && weight_imu_w_ok)
-                    {
-                        // If Odom_True_Ang_Diff > Imu_True_Ang_Diff, increase weight for IMU
-                        if (odom_true_ang_diff > imu_true_ang_diff)
-                        {
-                            if (weight_imu_w <= 0.95)
-                            {
-                                weight_imu_w += 0.05;
-                                weight_odom_w = 1 - weight_imu_w;
-                            }
-                        }
-                        // If Imu_true_ang_diff > Odom_true_ang_diff, increase weight for Odom
-                        if (imu_true_ang_diff > odom_true_ang_diff)
-                        {
-                            if (weight_odom_w <= 0.95)
-                            {
-                                weight_odom_w += 0.05;
-                                weight_imu_w = 1 - weight_odom_w;
-                            }
-                        }
-                    }
-                    if (weight_imu_v_ok && weight_odom_v_ok)
-                    {
-                        // Similarly Update Weights for V_diff
-                        if (odom_true_lin_diff > imu_true_lin_diff)
-                        {
-                            if (weight_imu_v <= 0.95)
-                            {
-                                weight_imu_v += 0.05;
-                                weight_odom_v = 1 - weight_imu_v;
-                            }
-                        }
-                        if (imu_true_lin_diff > odom_true_lin_diff)
-                        {
-                            if (weight_odom_v <= 0.95)
-                            {
-                                weight_odom_v += 0.05;
-                                weight_imu_v = 1 - weight_odom_v;
-                            }
-                        }
-                    }
-
-                    ROS_INFO("UPDATED WEIGHTS_wt: new_weight_imu_w(%2.2f) new_weight_odom_w(%3.2f)", weight_imu_w, weight_odom_w);
-                    ROS_INFO("UPDATED WEIGHTS_vt: new_weight_imu_v(%2.2f) new_weight_odom_v(%3.2f)", weight_imu_v, weight_odom_v);
-                }
+            change_vel_left = wheel_l - wheel_l_old;
+            change_vel_right = wheel_r - wheel_r_old;
+            lin_vel_odom = (wheel_radius/(2*dt))*(change_vel_right+change_vel_left);
+            ang_vel_odom = (wheel_radius/(axle_track*dt))*(change_vel_right-change_vel_left);
+            lin_vel_imu = lin_vel + imu_lin_acc*dt;
+            weight_imu_v = 1 - weight_odom_v;
+            weight_imu_w = 1 - weight_odom_w;
+            lin_vel = (weight_odom_v*lin_vel_odom)+(weight_imu_v*lin_vel_imu);
+            ang_vel = (weight_odom_w*ang_vel_odom)+(weight_imu_w*imu_ang_vel);
+            ang_rbt_old = ang_rbt;
+            ang_rbt = ang_rbt + (ang_vel*dt);
+            
+            rt = lin_vel/ang_vel;
+          
+            wheel_r_old = wheel_r;
+            wheel_l_old = wheel_l;
+            error_x = pos_rbt.x - msg_odom.pose.pose.position.x;
+            ROS_INFO_STREAM("Error x = " <<error_x);
+            error_y=pos_rbt.y - msg_odom.pose.pose.position.y;
+            ROS_INFO_STREAM("Error y = " <<error_y);
+            ROS_INFO_STREAM("Weight_odom_v=" <<weight_odom_v);
+            ROS_INFO_STREAM("Weight_odom_w=" <<weight_odom_w);
+            if (lin_vel != 0){
+                average_error_x  = (average_error_x + abs(error_x))/number_iteration;
+                average_error_y = (average_error_y + abs(error_y))/number_iteration;
+            };
+            ROS_INFO_STREAM("average_error_x=" <<average_error_x);
+            ROS_INFO_STREAM("average_error_y=" <<average_error_y);
+            number_iteration += 1;
+            ROS_INFO_STREAM("number ="  <<number_iteration);
+            average_speed = (average_speed + abs(lin_vel))/number_iteration;
+            ROS_INFO_STREAM("average speed =" <<average_speed);
+            
+            if(abs(ang_vel)> straight_thresh){
+                pos_rbt.x = pos_rbt.x + (rt*(-sin(ang_rbt_old)+ sin(ang_rbt)));
+                pos_rbt.y = pos_rbt.y + (rt*(cos(ang_rbt_old)- cos(ang_rbt)));
             }
+            else {
+                pos_rbt.x = pos_rbt.x +lin_vel*dt*(cos(ang_rbt_old));
+                pos_rbt.y = pos_rbt.y + lin_vel*dt*(sin(ang_rbt_old));
+            }
+
+
 
             // publish the pose
             // inject position and calculate quaternion for pose message, and publish

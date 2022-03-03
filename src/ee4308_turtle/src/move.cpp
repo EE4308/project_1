@@ -7,7 +7,21 @@
 #include <geometry_msgs/Twist.h>
 #include <std_msgs/Empty.h>
 #include "common.hpp"
-#include <fstream>
+double sat(double x,double x2)
+{
+    if(x > x2)
+    {
+        return x2;
+    }
+    else if (x < -x2)
+    {
+        return -x2;
+    }
+    else
+    {
+        return x;
+    }
+}
 
 bool target_changed = false;
 Position target;
@@ -32,28 +46,10 @@ void cbPose(const geometry_msgs::PoseStamped::ConstPtr &msg)
     ang_rbt = atan2(siny_cosp, cosy_cosp);
 }
 
-double check_threshold(double error_ang, double error_threshold)
-{
-    // // Using Normal Curve to Return 1 for values close to 0, and 0 for values far from it
-    // // Error Threshold affects the standard deviation of the curve (higher threshold = greater width)
-    // return exp(-0.5*pow(error_ang/error_threshold, 2))/(error_threshold*sqrt(2*M_PI));
-    if (abs(error_ang) < error_threshold)
-    {
-        return 1 - abs(error_ang) / error_threshold;
-    }
-    else
-    {
-        return 0;
-    }
-}
-
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "turtle_move");
     ros::NodeHandle nh;
-
-    std::ofstream data_file;
-    data_file.open("/home/rishab/a456w/data.txt");
 
     // Get ROS Parameters
     bool enable_move;
@@ -95,12 +91,9 @@ int main(int argc, char **argv)
     double move_iter_rate;
     if (!nh.param("move_iter_rate", move_iter_rate, 25.0))
         ROS_WARN(" TMOVE : Param move_iter_rate not found, set to 25");
-    double error_threshold;
-    if (!nh.param("error_threshold", error_threshold, 1.0))
-        ROS_WARN(" TMOVE : Param error_threshold not found, set to 1");
     bool enable_reverse;
-    if (!nh.param("enable_reverse", enable_reverse, false))
-        ROS_WARN(" TMOVE: Turn reverse move off by default");
+    if(!nh.param("enable_reverse", enable_reverse, false))
+        ROS_WARN(" TMOVE : Turn reverse move off by default");
 
     // Subscribers
     ros::Subscriber sub_target = nh.subscribe("target", 1, &cbTarget);
@@ -120,38 +113,43 @@ int main(int argc, char **argv)
     while (ros::ok() && nh.param("run", true) && ang_rbt == 10) // not dependent on main.cpp, but on motion.cpp
     {
         rate.sleep();
-        ros::spinOnce(); // update the topics
+        ros::spinOnce(); //update the topics
     }
 
     // Setup variables
+    
+
+    ////////////////// DECLARE VARIABLES HERE //////////////////
     double cmd_lin_vel = 0, cmd_ang_vel = 0;
     double dt;
     double prev_time = ros::Time::now().toSec();
 
-    ////////////////// DECLARE VARIABLES HERE //////////////////
+    double error_lin;
+    double error_lin_prev = 0;
+    double error_lin_sum =0;
+    double P_lin = 0;
+    double I_lin = 0;
+    double D_lin = 0;
+    double U_lin = 0;
+    double lin_acc;
+    double cmd_lin_vel_prev =0;
+    
 
-    // Positional Error
-    double lin_error = dist_euc(pos_rbt, target);
-    double lin_error_prev = 0;
-    double lin_error_sum = lin_error;
-    double P_lin;
-    double I_lin;
-    double D_lin;
-    double PID_lin_sum;
-    double U_lin;
-
-    // Angular Error
-    double ang_error = limit_angle(heading(pos_rbt, target) - ang_rbt);
+    double ang_error ;
     double ang_error_prev = 0;
-    double ang_error_sum = ang_error;
-    double P_ang;
-    double I_ang;
-    double D_ang;
-    double PID_ang_sum;
-    double U_ang;
+    double ang_error_sum = 0;
+    double P_ang = 0;
+    double I_ang = 0;
+    double D_ang = 0;
+    double U_ang = 0;
+    double ang_acc;
+    double cmd_ang_vel_prev =0;
 
-    double control_lin_acceleration;
-    double control_ang_acceleration;
+
+    int cnt =0;
+
+ 
+
 
     ROS_INFO(" TMOVE : ===== BEGIN =====");
 
@@ -167,79 +165,61 @@ int main(int argc, char **argv)
             if (dt == 0) // ros doesn't tick the time fast enough
                 continue;
             prev_time += dt;
+            
 
             ////////////////// MOTION CONTROLLER HERE //////////////////
+            
+            error_lin = dist_euc(pos_rbt,target);
+            error_lin_sum += error_lin*dt;
+            P_lin = Kp_lin*error_lin;
+            I_lin = I_lin + (Ki_lin*error_lin);
+            D_lin = Kd_lin*((error_lin-error_lin_prev)/dt);
+            U_lin = P_lin +I_lin+D_lin;
+            error_lin_prev = error_lin;
+            
+            ang_error = limit_angle(heading(pos_rbt,target) - ang_rbt);
 
-            // PID for Linear Velocity
-            lin_error = dist_euc(pos_rbt, target);
-            lin_error_sum += lin_error * dt;
-            P_lin = Kp_lin * lin_error;
-            I_lin = Ki_lin * lin_error_sum;
-            D_lin = Kd_lin * (lin_error - lin_error_prev) / dt;
-            lin_error_prev = lin_error;
-            PID_lin_sum = P_lin + I_lin + D_lin;
-
-            // PID for Angular Velocity
-            ang_error = limit_angle(heading(pos_rbt, target) - ang_rbt);
             bool reverse = false;
-            if (enable_reverse)
-            {
-                if (ang_error > M_PI / 2)
+            if (enable_reverse) {
+                if (ang_error > M_PI /2 )
                 {
                     reverse = true;
-                    ang_error = -(M_PI - ang_error);
+                    ang_error = - (M_PI - ang_error);
                 } else if (ang_error < -M_PI /2) {
                     reverse = true;
-                    ang_error = M_PI + ang_error; // Suppose heading is 10deg, expected is 105 deg, angular  error is -95 deg
+                    ang_error = M_PI + ang_error;
                 }
-                // Reverse teh PID Effort direction if reverse is true
+
                 if (reverse) {
                     ROS_INFO("REVERSED MOTION");
-                    PID_lin_sum = - PID_lin_sum;
+                    U_lin = - U_lin;
                 }
             }
-
-            ang_error_sum += ang_error * dt;
-            P_ang = Kp_ang * ang_error;
-            I_ang = Ki_ang * ang_error_sum;
-            D_ang = Kd_ang * (ang_error - ang_error_prev) / dt;
-            PID_ang_sum = P_ang + I_ang + D_ang;
+            ang_error_sum += ang_error*dt;
+            P_ang = Kp_ang*ang_error;
+            I_ang = I_ang + Ki_ang*ang_error;
+            D_ang = Kd_ang*((ang_error-ang_error_prev)/dt);
+            U_ang = P_ang +I_ang+D_ang;
             ang_error_prev = ang_error;
 
-            // Coupling Angular Error with Linear Velocity
-            /**
-             * Trianlge function curve in check_threshold() returns 1 for values at Ek,ang = 0
-             * and 0 for values greater than error_threshold in both directions. For values in between
-             * error_threshold and Ek,ang, returns value closer to 0, the greater the magnitude of Ek,ang.
-             */
-            double threshold_value = check_threshold(ang_error, error_threshold);
-            ROS_INFO("[U_lin] ang_error: %f\t check_threshold: %f", ang_error, threshold_value);
-            U_lin = PID_lin_sum * threshold_value;
-            U_ang = PID_ang_sum;
+            
 
-            // Constraint Control Signal Acceleration & Velocity
-            /**
-             * sat() is implemented in common.cpp and declaration added to common.hpp
-             */
-
-            control_lin_acceleration = (U_lin - cmd_lin_vel) / dt;
-            control_lin_acceleration = sat(control_lin_acceleration, max_lin_acc);
-            cmd_lin_vel = sat(U_lin + control_lin_acceleration * dt, max_lin_vel);
-            ROS_INFO("[cmd_lin_vel] control_lin_acceleration: %f\t cmd_lin_vel: %f", control_lin_acceleration, cmd_lin_vel);
-
-            control_ang_acceleration = (U_ang - cmd_ang_vel) / dt;
-            control_ang_acceleration = sat(control_ang_acceleration, max_ang_acc);
-            cmd_ang_vel = sat(U_ang + control_ang_acceleration * dt, max_ang_vel);
-            ROS_INFO("[cmd_ang_vel] control_ang_acceleration: %f\t cmd_ang_vel: %f", control_ang_acceleration, cmd_ang_vel);
+            lin_acc = (U_lin - cmd_lin_vel_prev)/dt;
+            cmd_lin_vel_prev = cmd_lin_vel;
+            lin_acc = sat(lin_acc,max_lin_acc);
+            cmd_lin_vel = sat((U_lin+lin_acc*dt),max_lin_vel);
+            ang_acc = (U_ang - cmd_ang_vel_prev)/dt;
+            ang_acc = sat(ang_acc,max_ang_acc);
+            cmd_ang_vel = sat((U_ang+ang_acc*dt),max_ang_vel);
+            cmd_ang_vel_prev = cmd_ang_vel;
+            cnt +=1;
+       
+         
 
             // publish speeds
             msg_cmd.linear.x = cmd_lin_vel;
             msg_cmd.angular.z = cmd_ang_vel;
             pub_cmd.publish(msg_cmd);
-
-
-            // LOG to datafile
-            data_file << ros::Time::now().toSec() << "\t" << lin_error << "\t" << ang_error << "\t" << PID_ang_sum << "\t" << PID_lin_sum << std::endl;
 
             // verbose
             if (verbose)
@@ -251,9 +231,6 @@ int main(int argc, char **argv)
             rate.sleep();
         }
     }
-
-    //Update and save data file
-    data_file.close();
 
     // attempt to stop the motors (does not work if ros wants to shutdown)
     msg_cmd.linear.x = 0;

@@ -4,15 +4,14 @@
 #include <vector>
 #include <deque>
 
-#ifndef PLANNER_HPP
-#define PLANNER_HPP
-class Planner 
+#ifndef DIJKSTRA_HPP
+#define DIJKSTRA_HPP
+class Dijkstra 
 {       
     public:
         struct Node
         {
-            double g, h;
-            bool visited;
+            double g;
             Index idx, parent;
             Node();
         };
@@ -24,15 +23,12 @@ class Planner
             Open(double f, Index idx);
         };
         Index start, goal;
-        Grid & grid; // REFERENCE <-- you cannot put the Planner class into containers (vectors , arrays etc.) 
-        
-        Planner(Grid & grid);
-        Index find_closest_free(Index idx_start);
-        std::vector<Index> get(Index idx_start, Index idx_goal);
-        std::vector<Position> get(Position pos_start, Position pos_goal);
-        std::vector<Index> theta(Index idx_start, Index idx_goal);
-        std::vector<Position> theta(Position pos_start, Position pos_goal);
+        Grid & planner_grid; // REFERENCE <-- you cannot put the Planner class into containers (vectors , arrays etc.) 
+        Grid grid;
 
+        Dijkstra(Grid & planner_grid, Grid grid);
+        Index find_closest_free(Index idx_start);
+        Index get(Index idx);
         std::deque<Open> open_list;
     private:
         std::vector<Node> nodes; // keeps a record of the cheapest cost of every cell in the grid, as well as their parents
