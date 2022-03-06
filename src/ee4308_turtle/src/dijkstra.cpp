@@ -82,7 +82,7 @@ Index Dijkstra::get(Index idx)
         // (1) poll node from open
         node = poll_from_open();
 
-        // (3) return path if node is the goal
+        // (3) return index if node is the cheapest free cell
         if (planner_grid.get_cell(node->idx))
         {   // reached the goal, return the path
             ROS_INFO("free cell found!");
@@ -111,13 +111,12 @@ Index Dijkstra::get(Index idx)
                 g_nb += M_SQRT2;
             // the above if else can be condensed using ternary statements: g_nb += is_cardinal ? 1 : M_SQRT2;
 
+            //add penalty base on original grid
             int nb_k = grid.get_key(idx_nb);            
             if (planner_grid.grid_inflation[nb_k] > 0) // is inflated
                 g_nb += 10;
             else if (planner_grid.grid_log_odds[nb_k] > grid.log_odds_thresh) //is obstacle
                g_nb += 900;
-            // else
-            //     continue; // in map, not inflated, and is log odds free
 
             // compare the cost to any previous costs. If cheaper, mark the node as the parent
             Node & nb_node = nodes[nb_k]; // use reference so changing nb_node changes nodes[k]
@@ -130,8 +129,6 @@ Index Dijkstra::get(Index idx)
                 add_to_open(&nb_node); // & a reference means getting the pointer (address) to the reference's object.
             }
 
-            // toggle is_cardinal
-            //is_cardinal = !is_cardinal;
         }
     }
 
