@@ -156,8 +156,8 @@ int main(int argc, char **argv)
     Planner planner(grid);
     Dijkstra dijkstra(grid, grid);
     // Initialize pose printing
-    //std::ofstream data_file;
-    //data_file.open("/home/zccccclin/test1/data.csv");
+    std::ofstream data_file;
+    data_file.open("/home/zccccclin/project_1_labs/data.csv");
 
     // setup loop rates
     ros::Rate rate(main_iter_rate);
@@ -230,6 +230,7 @@ int main(int argc, char **argv)
             msg_target.point.y = pos_target.y;
             pub_target.publish(msg_target);
         }
+        data_file <<  pos_rbt.x <<","<< pos_rbt.y << std::endl;
         if (replan)
         {
             if (grid.get_cell(pos_rbt) && grid.get_cell(pos_goal))
@@ -349,6 +350,7 @@ int main(int argc, char **argv)
         // sleep for rest of iteration
         rate.sleep();
     }
+    data_file.close();
 
     nh.setParam("run", false); // turns off other nodes
     ROS_INFO(" TMAIN : ===== END =====");

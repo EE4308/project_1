@@ -1,5 +1,7 @@
 #include "trajectory.hpp"
+#include "CubicSpline.hpp"
 
+CubicSpline::SplinePath spath;
 std::vector<Position> post_process(std::vector<Position> path, Grid &grid) // returns the turning points
 {
     // (1) obtain turning points
@@ -34,7 +36,7 @@ std::vector<Position> post_process(std::vector<Position> path, Grid &grid) // re
     std::vector<Position> post_process_path;
     
     // (2) make it more any-angle
-    // done by students
+    // done through Theta* 
     
     post_process_path = turning_points; // remove this line if (2) is done
     return post_process_path;
@@ -48,9 +50,26 @@ std::vector<Position> generate_trajectory(Position pos_begin, Position pos_end, 
     double duration = sqrt(Dx*Dx + Dy*Dy) / average_speed;
 
     // (2) generate cubic / quintic trajectory
-    // done by students
+    //initialize vector to store turning points
+    std::vector<double> rx,ry;
+    rx.emplace_back(pos_begin.x);
+    rx.emplace_back(pos_end.x);
+    ry.emplace_back(pos_begin.y);
+    ry.emplace_back(pos_end.y);
 
+    spath = CubicSpline::calcSplinePath(rx,ry,0.01); //Call CubicSpline to generate traj pos
+
+    // Add pos to traj
+    std::vector<Position> trajectory = {pos_begin};
+    for (int i = 0; i<spath.rx.size(); i++)
+    {
+        trajectory.emplace_back(
+            spath.rx[i],
+            spath.ry[i]
+        );
+    }
     // OR (2) generate targets for each target_dt
+    /* Original Code, obselete
     std::vector<Position> trajectory = {pos_begin};
     for (double time = target_dt; time < duration; time += target_dt)
     {
@@ -59,7 +78,7 @@ std::vector<Position> generate_trajectory(Position pos_begin, Position pos_end, 
             pos_begin.y + Dy*time / duration
         );
     }
-
+    */
     return trajectory; 
 }
 
