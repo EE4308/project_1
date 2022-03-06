@@ -37,9 +37,10 @@ add_executable(
     src/common.cpp
     src/los.cpp
     src/trajectory.cpp
-    src/dijkstra.cpp)
+    src/dijkstra.cpp
+    src/CubicSpline.cpp)
     
-target_link_libraries(turtle_main ${catkin_LIBRARIES})
+target_link_libraries(turtle_main armadillo ${catkin_LIBRARIES})
 
 
 add_executable(
