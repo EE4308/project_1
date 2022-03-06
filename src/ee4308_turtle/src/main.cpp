@@ -244,8 +244,7 @@ int main(int argc, char **argv)
                 Index idx_rbt = grid.pos2idx(pos_rbt);
                 int r = grid.get_key(idx_rbt);
                 // if the robot and goal are both on accessible cells of the grid
-                if (theta_planner):
-                    path = planner.theta(pos_rbt, pos_goal); // original path
+                if (theta_planner) path = planner.theta(pos_rbt, pos_goal); // original path
                 else path = planner.get(pos_rbt, pos_goal);
                 if (path.empty())
                 { // path cannot be found
