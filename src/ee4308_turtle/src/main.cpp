@@ -12,6 +12,7 @@
 #include <nav_msgs/OccupancyGrid.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PointStamped.h>
+#include <fstream>
 
 std::vector<float> ranges;
 void cbScan(const sensor_msgs::LaserScan::ConstPtr &msg)
@@ -107,10 +108,14 @@ int main(int argc, char **argv)
     double main_iter_rate;
     if (!nh.param("main_iter_rate", main_iter_rate, 25.0))
         ROS_WARN(" TMOVE : Param main_iter_rate not found, set to 25");
+    bool theta_planner;
+    if (!nh.param("theta_planner", theta_planner, true))
+        ROS_WARN("TMAIN: Param theta_planner default set to true");
+ 
     // print out the parameters
     ROS_INFO(" TMAIN : Goals[%s], Grid[%.2f,%.2f to %.2f,%.2f]  CloseEnuf:%f  TgtDt:%f  AvgSpd:%f  CellSize:%f  InfMskRad:%f  LOThrsh:%d  LOCap:%d",
              goal_str.c_str(), pos_min.x, pos_min.y, pos_max.x, pos_max.y, close_enough, target_dt, average_speed, cell_size, inflation_radius, log_odds_thresh, log_odds_cap);
-
+ 
     // subscribers
     ros::Subscriber sub_scan = nh.subscribe("scan", 1, &cbScan);
     ros::Subscriber sub_pose = nh.subscribe("pose", 1, &cbPose);
@@ -150,6 +155,9 @@ int main(int argc, char **argv)
     // Setup the planner class
     Planner planner(grid);
     Dijkstra dijkstra(grid, grid);
+    // Initialize pose printing
+    //std::ofstream data_file;
+    //data_file.open("/home/zccccclin/test1/data.csv");
 
     // setup loop rates
     ros::Rate rate(main_iter_rate);
@@ -236,7 +244,9 @@ int main(int argc, char **argv)
                 Index idx_rbt = grid.pos2idx(pos_rbt);
                 int r = grid.get_key(idx_rbt);
                 // if the robot and goal are both on accessible cells of the grid
-                path = planner.theta(pos_rbt, pos_goal); // original path
+                if (theta_planner):
+                    path = planner.theta(pos_rbt, pos_goal); // original path
+                else path = planner.get(pos_rbt, pos_goal);
                 if (path.empty())
                 { // path cannot be found
                     ROS_WARN(" TMAIN : No path found between robot and goal");
@@ -307,18 +317,18 @@ int main(int argc, char **argv)
             { // robot lies on inaccessible cell, or if goal lies on inaccessible cell
                 if (!grid.get_cell(pos_rbt)){
                     ROS_WARN(" TMAIN : Robot lies on inaccessible area. No path can be found");
-                    ROS_INFO("ORIGINAL RBT_POSITION: %f %f",pos_rbt.x,pos_rbt.y);
+                    ROS_WARN("ORIGINAL RBT_POSITION: %f %f",pos_rbt.x,pos_rbt.y);
                     Index idx = grid.pos2idx(pos_rbt);
-                    ROS_INFO("ORIGINAL RBT_IDX: %d %d",idx.i,idx.j);
-                    idx = dijkstra.get(idx);
-                    ROS_INFO("UPDATED RBT_IDX: %d %d",idx.i,idx.j);
+                    ROS_WARN("ORIGINAL RBT_IDX: %d %d",idx.i,idx.j);
+                    idx = dijkstra.get(idx); //get free cell from dijkstra
+                    ROS_WARN("UPDATED RBT_IDX: %d %d",idx.i,idx.j);
                     pos_rbt = grid.idx2pos(idx);
                     // set flag intermediate goal, until goal is reached
                     if (intermediate_goal_enable == false) {
-                        goals.insert(goals.begin(),pos_rbt);
+                        goals.insert(goals.begin(),pos_rbt); //insert goal to front
                         intermediate_goal_enable = true;
                     }
-                    ROS_INFO("ROBOT INFLATED, REPLAN TO: %f %f.", pos_goal.x,pos_goal.y);
+                    ROS_WARN("ROBOT INFLATED, REPLAN TO: %f %f.", pos_goal.x,pos_goal.y);
                 }
                 if (!grid.get_cell(pos_goal)){
                     ROS_WARN(" TMAIN : Goal lies on inaccessible area. No path can be found");
@@ -326,16 +336,16 @@ int main(int argc, char **argv)
 
                     Index idx = grid.pos2idx(pos_goal);
                     ROS_WARN("[WD] ORIGINAL GOAL_IDX: %d %d",idx.i,idx.j);
-                    idx = dijkstra.get(idx);
+                    idx = dijkstra.get(idx); //get free cell from dijkstra
                     ROS_WARN("[WD] UPDATED GOAL_IDX: %d %d",idx.i,idx.j);
-                    goals[g] = grid.idx2pos(idx);
+                    goals[g] = grid.idx2pos(idx); //replace goal
                     ROS_WARN("[WD] G-Value %d", g);
                     ROS_WARN("[WD] GOAL INFLATED, REPLAN TO: %f %f.", pos_goal.x,pos_goal.y);
                 }
             }
         }
-        ROS_WARN("[G-VAL] %d", g);
-        ROS_WARN("[WD - GOALS]: %ld", goals.size());
+        ROS_WARN("[WD - Goal_IDX_VAL] %d", g);
+        ROS_WARN("[WD - Goal_List_Size]: %ld", goals.size());
 
         // sleep for rest of iteration
         rate.sleep();
